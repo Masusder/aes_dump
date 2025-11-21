@@ -10,7 +10,7 @@ from yaspin import yaspin
 # Configure this as you wish
 MIN_NULL_START_REGION_SIZE = 10_000
 MIN_NULL_END_REGION_SIZE = 10_000
-MAX_REGION_SIZE = 1 * 1024 * 1024
+MAX_REGION_SIZE = 2 * 1024 * 1024
 AVERAGE_REGION_SIZE = 100_000
 MIN_REGION_SIZE = 25_000
 AES_KEY_SIZE = 32
@@ -53,6 +53,7 @@ def find_regions_from_minidump(file_path: str):
         for seg in dump.memory_segments_64.memory_segments:
             size = seg.size
             file_offset = seg.start_file_address
+
             if MIN_REGION_SIZE < size <= MAX_REGION_SIZE:
                 regions.append((file_offset, file_offset + size, size))
 
@@ -60,9 +61,9 @@ def find_regions_from_minidump(file_path: str):
     return regions, elapsed
 
 
-def find_regions_alternative(file_path: str, scan_mode: ScanMode):
+def find_regions_loose(file_path: str, scan_mode: ScanMode):
     """
-    Alternative dumb method if key wasn't found in memory regions
+    Alternative dumb method if minidump is corrupted
     Finds regions sorrounded by large null chunks
     """
     size = os.path.getsize(file_path)
@@ -147,6 +148,9 @@ def find_aes_keys_in_regions(file_path, regions):
             while i <= initial_end - AES_KEY_SIZE:
                 candidate = mm[i:i + AES_KEY_SIZE]
 
+                # NOTE:
+                # It's possible for AES key to start with null bytes
+                # So in case if key was found, and it isn't working, just try adding null bytes back
                 if candidate[0] == 0x00:
                     i += 1
                     continue
@@ -202,11 +206,12 @@ def main():
         return
 
     scan_steps = [
-        (find_regions_from_minidump, None, "Minidump scan"),
-        (find_regions_alternative, ScanMode.Forward, "Alternative scan (Forward)"),
-        (find_regions_alternative, ScanMode.Backward, "Alternative scan (Backward)"),
+        (find_regions_from_minidump, None, "Minidump Scan"),
+        (find_regions_loose, ScanMode.Forward, "Loose Scan Forward"),
+        (find_regions_loose, ScanMode.Backward, "Loose scan Backward"),
     ]
 
+    print()
     print(os.path.basename(file_path))
 
     keys = []
@@ -215,7 +220,8 @@ def main():
             regions, elapsed = scan_func(file_path) if mode is None else scan_func(file_path, mode)
 
             if not regions:
-                sp.fail("✖ No regions found")
+                sp.text = " " * 80
+                sp.fail("✖ No memory regions found in minidump")
                 continue
 
             sp.ok("✔")
@@ -237,7 +243,7 @@ def main():
         print("No AES keys were found :(")
         return
 
-    print("\n=== AES KEYS FOUND ===")
+    print("\n=== POSSIBLE AES KEY(S) FOUND ===")
     for k in keys:
         print(f"0x{k.hex().upper()}")
 
