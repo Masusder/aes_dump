@@ -4,6 +4,8 @@ import math
 import mmap
 import time
 from enum import Enum, auto
+from pathlib import Path
+from rich.filesize import decimal
 from minidump.minidumpfile import MinidumpFile
 from yaspin import yaspin
 
@@ -199,20 +201,25 @@ def main():
     parser.add_argument("dmp_file_path", type=str, help="Path to memory dump file")
     args = parser.parse_args()
 
-    file_path = args.dmp_file_path
-    if not os.path.isfile(file_path):
+    file_path = Path(args.dmp_file_path)
+    if not file_path.exists():
         print(f"Error: File not found: {file_path}")
         parser.print_usage()
         return
 
+    size = file_path.stat().st_size
+    if size == 0:
+        print("Memory dump is empty, this usually happens due to anticheat")
+        return
+
     scan_steps = [
         (find_regions_from_minidump, None, "Minidump Scan"),
-        (find_regions_loose, ScanMode.Forward, "Loose Scan Forward"),
-        (find_regions_loose, ScanMode.Backward, "Loose scan Backward"),
+        (find_regions_loose, ScanMode.Forward, "Heuristic Scan Forward"),
+        (find_regions_loose, ScanMode.Backward, "Heuristic Scan Backward"),
     ]
 
     print()
-    print(os.path.basename(file_path))
+    print(f"{file_path.name} ({decimal(size)})")
 
     keys = []
     for scan_func, mode, description in scan_steps:
